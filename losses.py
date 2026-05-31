@@ -52,6 +52,28 @@ def accuracy(output, target, topk=(1,)):
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
+
+class FocalLoss(torch.nn.Module):
+    def __init__(self, alpha=0.75, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, logits, targets):
+        if torch.is_tensor(self.alpha):
+            # per-class weighting: alpha is a tensor [neg_weight, pos_weight]
+            weight = self.alpha.to(logits.device)
+            ce = F.cross_entropy(logits, targets, weight=weight, reduction='none')
+        else:
+            # scalar alpha: single multiplicative factor
+            ce = F.cross_entropy(logits, targets, reduction='none')
+            ce = self.alpha * ce
+
+        pt = torch.exp(-ce)
+        loss = (1 - pt) ** self.gamma * ce
+        return loss.mean()
+
+
 class SetCriterion(nn.Module):
     """ This class computes the loss for Graphformer.
     The process happens in two steps:
@@ -75,6 +97,10 @@ class SetCriterion(nn.Module):
         self.rln_token = config.MODEL.DECODER.RLN_TOKEN
         self.obj_token = config.MODEL.DECODER.OBJ_TOKEN
         self.losses = config.TRAIN.LOSSES
+        self.focal_loss = FocalLoss(
+            # alpha=torch.tensor([1.0, 5.0]),
+            gamma=2.0
+        )
         self.weight_dict = {'boxes':config.TRAIN.W_BBOX,
                             'class':config.TRAIN.W_CLASS,
                             'cards':config.TRAIN.W_CARD,
@@ -257,10 +283,11 @@ class SetCriterion(nn.Module):
             # valid_edges = torch.argmax(relation_pred, -1)
             # print('valid_edge number', valid_edges.sum())
 
-            pos = (edge_labels == 1).sum().float()
-            neg = (edge_labels == 0).sum().float()
-            weight = torch.tensor([1.0, neg / pos], device=edge_labels.device)
-            loss = F.cross_entropy(relation_pred, edge_labels, weight=weight, reduction='mean')
+            # pos = (edge_labels == 1).sum().float()
+            # neg = (edge_labels == 0).sum().float()
+            # weight = torch.tensor([1.0, neg / pos], device=edge_labels.device)
+            # loss = F.cross_entropy(relation_pred, edge_labels, weight=weight, reduction='mean')
+            loss = self.focal_loss(relation_pred, edge_labels)
         except Exception as e:
             print(e)
             pdb.set_trace()

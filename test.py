@@ -10,13 +10,16 @@ parser.add_argument('--config',
                     default="/home/tien.nguyen/workspace/project/relationformer/configs/info_box_and_windoor_linking.yaml",
                     help='config file (.yml) containing the hyper-parameters for training. '
                          'If None, use the nnU-Net config. See /config for examples.')
-parser.add_argument('--checkpoint', default="/home/tien.nguyen/workspace/project/relationformer/trained_weights/runs/baseline_info_box_and_windoor_linking_no_num_edges_val_link_acc_center_pred_nodes_10/models/checkpoint_key_metric=0.8617.pt", help='checkpoint of the model to test.')
+parser.add_argument('--checkpoint', default="/home/tien.nguyen/workspace/project/relationformer/trained_weights/runs/baseline_info_box_and_windoor_linking_no_num_edges_val_link_f1_center_pred_nodes_focal_loss_10/models/checkpoint_key_metric=0.7936.pt", help='checkpoint of the model to test.')
 parser.add_argument('--device', default='cuda',
                         help='device to use for training')
-parser.add_argument('--edge-score-threshold', default=0.2,
+parser.add_argument('--edge-score-threshold', default=0.,
                         help='device to use for training')
-parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[2],
+parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[7],
                         help='list of index where skip conn will be made.')
+
+
+VIS_RESULTS_DIR = "/home/tien.nguyen/workspace/project/relationformer/vis_results"
 
 
 def draw_graph(
@@ -196,7 +199,7 @@ def test(args):
     from dataset_road_network import build_road_network_data
     from models import build_model
     from inference import relation_infer
-    from metric_smd import StreetMoverDistance
+    from metric_linking import LinkingF1Metric
     from metric_map import BBoxEvaluator
     from box_ops_2D import box_cxcywh_to_xyxy_np
     from utils import image_graph_collate_road_network
@@ -227,8 +230,8 @@ def test(args):
 
     # init metric
     # metric = StreetMoverDistance(eps=1e-7, max_iter=100, reduction=MetricReduction.MEAN)
-    metric_smd = StreetMoverDistance(eps=1e-5, max_iter=10, reduction='none')
-    smd_results = []
+    metric_f1 = LinkingF1Metric()
+    f1_results = []
 
     metric_node_map = BBoxEvaluator(['node'], max_detections=100)
     metric_edge_map = BBoxEvaluator(['edge'], max_detections=100)
@@ -251,7 +254,7 @@ def test(args):
                 nms=False, map_=True,  given_boxes=config.MODEL.GIVEN_BOXES
             )
 
-            os.makedirs("vis_results", exist_ok=True)
+            os.makedirs(VIS_RESULTS_DIR, exist_ok=True)
 
             for b_idx in range(len(org_images)):
 
@@ -277,13 +280,12 @@ def test(args):
                     pred_edge_score_np,
                 )
 
-                save_path = f"vis_results/sample_{i*config.DATA.TEST_BATCH_SIZE+b_idx}.jpg"
+                save_path = f"{VIS_RESULTS_DIR}/sample_{i*config.DATA.TEST_BATCH_SIZE+b_idx}.jpg"
 
                 cv2.imwrite(save_path, vis_img)
 
-            # Add smd of current batch elem
-            ret = metric_smd(nodes, edges, pred_nodes, pred_edges)
-            smd_results += ret.tolist()
+                f1 = metric_f1([edges[b_idx].cpu().numpy()], [pred_edge_np])
+                f1_results.append(f1)
 
             # Add elements of current batch elem to node map evaluator
             metric_node_map.add(
@@ -318,12 +320,10 @@ def test(args):
             for node_, edge_, pred_node_, pred_edge_ in zip(nodes, edges, pred_nodes, pred_edges):
                 topo_results.append(compute_topo(node_.cpu(), edge_.cpu(), pred_node_, pred_edge_, config.DATA.IMG_SIZE))
     
-    topo_array=np.array(topo_results)
-    print(topo_array.mean(0))
     # Determine smd
-    smd_mean = torch.tensor(smd_results).mean().item()
-    smd_std = torch.tensor(smd_results).std().item()
-    print(f'smd value: mean {smd_mean}, std {smd_std}\n')
+    smd_mean = torch.tensor(f1_results).mean().item()
+    smd_std = torch.tensor(f1_results).std().item()
+    print(f'F1 value: mean {smd_mean}, std {smd_std}\n')
 
     # Determine node box ap / ar
     node_metric_scores = metric_node_map.eval()

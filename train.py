@@ -15,7 +15,7 @@ parser.add_argument('--resume', default=None, help='checkpoint of the last epoch
 parser.add_argument('--seg_net', default=None, help='checkpoint of the segmentation model')
 parser.add_argument('--device', default='cuda',
                         help='device to use for training')
-parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[2],
+parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[1],
                         help='list of index where skip conn will be made')
 
 

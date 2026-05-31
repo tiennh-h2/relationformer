@@ -11,13 +11,14 @@ reinit__is_reduced, _ = optional_import(
 )
 
 
-class LinkingAccuracyMetric:
+class LinkingF1Metric:
     def __init__(self):
         self.reset()
 
     def reset(self):
-        self.correct = 0
-        self.total = 0
+        self.tp = 0
+        self.pred_total = 0
+        self.gt_total = 0
 
     def normalize_edge(self, edge):
         return tuple(sorted(edge))
@@ -33,6 +34,15 @@ class LinkingAccuracyMetric:
             for edge in edges
         )
 
+    def _f1(self, tp, pred_total, gt_total):
+        precision = tp / pred_total if pred_total > 0 else 0.0
+        recall = tp / gt_total if gt_total > 0 else 0.0
+
+        if precision + recall == 0:
+            return 0.0
+
+        return 2 * precision * recall / (precision + recall)
+
     def __call__(self, gt_edges, pred_edges):
 
         batch_size = len(gt_edges)
@@ -42,27 +52,19 @@ class LinkingAccuracyMetric:
             gt_set = self.edge_to_set(gt_edges[b])
             pred_set = self.edge_to_set(pred_edges[b])
 
-            correct = len(gt_set & pred_set)
-            total = len(pred_set)
+            self.tp += len(gt_set & pred_set)
+            self.pred_total += len(pred_set)
+            self.gt_total += len(gt_set)
 
-            self.correct += correct
-            self.total += total
-
-        if self.total == 0:
-            return torch.tensor(0.0)
-
-        return torch.tensor(self.correct / self.total)
+        return torch.tensor(self._f1(self.tp, self.pred_total, self.gt_total))
 
     def aggregate(self):
-        if self.total == 0:
-            return 0.0
-
-        return self.correct / self.total
+        return self._f1(self.tp, self.pred_total, self.gt_total)
 
 
-class MeanLinkingAccuracy(Metric):
+class MeanLinkingF1(Metric):
     def __init__(self, output_transform=lambda x: x):
-        self.metric_fn = LinkingAccuracyMetric()
+        self.metric_fn = LinkingF1Metric()
         super().__init__(output_transform=output_transform)
 
     @reinit__is_reduced

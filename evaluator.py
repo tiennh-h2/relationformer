@@ -4,7 +4,7 @@ import torch
 from monai.engines import SupervisedEvaluator
 from monai.handlers import StatsHandler, CheckpointSaver, TensorBoardStatsHandler
 from metric_smd import MeanSMD
-from metric_linking import MeanLinkingAccuracy
+from metric_linking import MeanLinkingF1
 from monai.inferers import SimpleInferer
 from monai.transforms import (
     Compose,
@@ -135,7 +135,7 @@ def build_evaluator(val_loader, net, optimizer, scheduler, writer, config, devic
         ),
         TensorBoardStatsHandler(
             writer,
-            tag_name="val_link_acc",
+            tag_name="val_link_f1",
             output_transform=lambda x: None,
             global_epoch_transform=lambda x: scheduler.last_epoch
         ),
@@ -156,10 +156,10 @@ def build_evaluator(val_loader, net, optimizer, scheduler, writer, config, devic
         inferer=SimpleInferer(),
         # post_transform=val_post_transform,
         key_val_metric={
-            # "val_smd": MeanLinkingAccuracy(
+            # "val_smd": MeanLinkingF1(
             #     output_transform=lambda x: (x["nodes"], x["edges"], x["pred_nodes"], x["pred_edges"]),
             # ),
-            "val_link_acc": MeanLinkingAccuracy(
+            "val_link_f1": MeanLinkingF1(
                 output_transform=lambda x: (
                     x["edges"],
                     x["pred_edges"],

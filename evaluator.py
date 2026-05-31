@@ -4,6 +4,7 @@ import torch
 from monai.engines import SupervisedEvaluator
 from monai.handlers import StatsHandler, CheckpointSaver, TensorBoardStatsHandler
 from metric_smd import MeanSMD
+from metric_linking import MeanLinkingAccuracy
 from monai.inferers import SimpleInferer
 from monai.transforms import (
     Compose,
@@ -78,7 +79,7 @@ class RelationformerEvaluator(SupervisedEvaluator):
         self.config = kwargs.pop('config')
         
     def _iteration(self, engine, batchdata):
-        images, nodes, edges = batchdata[0], batchdata[2], batchdata[3]
+        images, nodes, edges, classes = batchdata[0], batchdata[2], batchdata[3], batchdata[4]
         
         # # inputs, targets = self.get_batch(batchdata, image_keys=IMAGE_KEYS, label_keys="label")
         # # inputs = torch.cat(inputs, 1)
@@ -88,10 +89,10 @@ class RelationformerEvaluator(SupervisedEvaluator):
 
         self.network.eval()
         
-        h, out, srcs = self.network(images, seg=False)
+        h, out, srcs = self.network(images, nodes, classes, seg=False)
 
         pred_nodes, pred_edges = relation_infer(
-            h.detach(), out, self.network, self.config.MODEL.DECODER.OBJ_TOKEN, self.config.MODEL.DECODER.RLN_TOKEN
+            h.detach(), out, self.network, self.config.MODEL.DECODER.OBJ_TOKEN, self.config.MODEL.DECODER.RLN_TOKEN, given_boxes=self.config.MODEL.GIVEN_BOXES
         )
         
         # if self.config.TRAIN.SAVE_VAL:
@@ -129,11 +130,12 @@ def build_evaluator(val_loader, net, optimizer, scheduler, writer, config, devic
             save_key_metric=True,
             key_metric_n_saved=1,
             save_interval=1,
-            key_metric_negative_sign=True
+            key_metric_negative_sign=False,
+            key_metric_greater_or_equal=True
         ),
         TensorBoardStatsHandler(
             writer,
-            tag_name="val_smd",
+            tag_name="val_link_acc",
             output_transform=lambda x: None,
             global_epoch_transform=lambda x: scheduler.last_epoch
         ),
@@ -154,8 +156,14 @@ def build_evaluator(val_loader, net, optimizer, scheduler, writer, config, devic
         inferer=SimpleInferer(),
         # post_transform=val_post_transform,
         key_val_metric={
-            "val_smd": MeanSMD(
-                output_transform=lambda x: (x["nodes"], x["edges"], x["pred_nodes"], x["pred_edges"]),
+            # "val_smd": MeanLinkingAccuracy(
+            #     output_transform=lambda x: (x["nodes"], x["edges"], x["pred_nodes"], x["pred_edges"]),
+            # ),
+            "val_link_acc": MeanLinkingAccuracy(
+                output_transform=lambda x: (
+                    x["edges"],
+                    x["pred_edges"],
+                ),
             )
         },
         val_handlers=val_handlers,

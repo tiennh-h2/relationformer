@@ -71,6 +71,7 @@ class SetCriterion(nn.Module):
         super().__init__()
         self.matcher = matcher
         self.net = net
+        self.given_boxes = config.MODEL.GIVEN_BOXES
         self.rln_token = config.MODEL.DECODER.RLN_TOKEN
         self.obj_token = config.MODEL.DECODER.OBJ_TOKEN
         self.losses = config.TRAIN.LOSSES
@@ -86,7 +87,8 @@ class SetCriterion(nn.Module):
            targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
            The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
         """
-        weight = torch.tensor([0.2, 0.8]).to(outputs.get_device())
+        weight = torch.ones(outputs.shape[-1], device=outputs.device)
+        weight[0] = 0.2
         
         idx = self._get_src_permutation_idx(indices)
 
@@ -157,7 +159,7 @@ class SetCriterion(nn.Module):
         loss = loss.sum() / num_boxes
         return loss
 
-    def loss_edges(self, h, target_nodes, target_edges, indices, num_edges=80):
+    def loss_edges(self, h, target_nodes, target_edges, pred_logits, indices, num_edges=80):
         """Compute the losses related to the masks: the focal loss and the dice loss.
            targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
         """
@@ -194,6 +196,18 @@ class SetCriterion(nn.Module):
                 full_adj = torch.ones((n.shape[0],n.shape[0]))-torch.diag(torch.ones(n.shape[0]))
                 full_adj[pos_edge[:,0],pos_edge[:,1]]=0
                 full_adj[pos_edge[:,1],pos_edge[:,0]]=0
+
+                # Filter impossible pairs
+                if self.given_boxes:
+                    given_logits = pred_logits[batch_id, indices[batch_id][0],:]
+                    class_idx = given_logits.argmax(dim=1)
+                    allowed = (
+                        ((class_idx[:, None] == 1) & (class_idx[None, :] == 3)) |
+                        ((class_idx[:, None] == 3) & (class_idx[None, :] == 1)) |
+                        ((class_idx[:, None] == 2) & (class_idx[None, :] == 3)) |
+                        ((class_idx[:, None] == 3) & (class_idx[None, :] == 2))
+                    )
+                    full_adj = full_adj * allowed.float().to(full_adj.device)
                 neg_edges = torch.nonzero(torch.triu(full_adj))
 
                 # shuffle edges for undirected edge
@@ -216,7 +230,7 @@ class SetCriterion(nn.Module):
                 neg_edges[shuffle,:] = to_shuffle[:,[1, 0]]
                 
                 # check whether the number of -ve edges are within limit 
-                if num_edges-pos_edge.shape[0]<neg_edges.shape[0]:
+                if num_edges is not None and num_edges-pos_edge.shape[0]<neg_edges.shape[0]:
                     take_neg = num_edges-pos_edge.shape[0]
                     total_edge = num_edges
                 else:
@@ -243,7 +257,10 @@ class SetCriterion(nn.Module):
             # valid_edges = torch.argmax(relation_pred, -1)
             # print('valid_edge number', valid_edges.sum())
 
-            loss = F.cross_entropy(relation_pred, edge_labels, reduction='mean')
+            pos = (edge_labels == 1).sum().float()
+            neg = (edge_labels == 0).sum().float()
+            weight = torch.tensor([1.0, neg / pos], device=edge_labels.device)
+            loss = F.cross_entropy(relation_pred, edge_labels, weight=weight, reduction='mean')
         except Exception as e:
             print(e)
             pdb.set_trace()
@@ -277,7 +294,7 @@ class SetCriterion(nn.Module):
         losses['class'] = self.loss_class(out['pred_logits'], indices)
         losses['nodes'] = self.loss_nodes(out['pred_nodes'][...,:2], target['nodes'], indices)
         losses['boxes'] = self.loss_boxes(out['pred_nodes'], target['nodes'], indices)
-        losses['edges'] = self.loss_edges(h, target['nodes'], target['edges'], indices)
+        losses['edges'] = self.loss_edges(h, target['nodes'], target['edges'], out['pred_logits'], indices, None)
         losses['cards'] = self.loss_cardinality(out['pred_logits'], indices)
         
         losses['total'] = sum([losses[key]*self.weight_dict[key] for key in self.losses])

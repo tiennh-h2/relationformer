@@ -133,7 +133,7 @@ class DeformableTransformer(nn.Module):
         valid_ratio = torch.stack([valid_ratio_w, valid_ratio_h], -1)
         return valid_ratio
 
-    def forward(self, srcs, masks, query_embed, pos_embeds):
+    def forward(self, srcs, masks, query_embed, pos_embeds, reference_points=None):
         assert self.two_stage or query_embed is not None
 
         # prepare input for encoder
@@ -167,7 +167,15 @@ class DeformableTransformer(nn.Module):
 
         # prepare input for decoder
         bs, _, c = memory.shape
-        if self.two_stage:
+        if reference_points is not None:
+            query_embed, tgt = torch.split(query_embed, c, dim=1)
+            query_embed = query_embed.unsqueeze(0).expand(bs, -1, -1)
+            tgt = tgt.unsqueeze(0).expand(bs, -1, -1)
+            ref_points = self.reference_points(query_embed).sigmoid()
+            rln_points = ref_points[:,-1:,:]
+            reference_points = torch.concat([reference_points, rln_points], dim=1)
+            init_reference_out = reference_points
+        elif self.two_stage:
             output_memory, output_proposals = self.gen_encoder_output_proposals(memory, mask_flatten, spatial_shapes)
 
             # hack implementation for two-stage Deformable DETR

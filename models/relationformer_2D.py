@@ -23,6 +23,7 @@ class RelationFormer(nn.Module):
         self.decoder = decoder
         self.config = config
 
+        self.given_boxes = getattr(config.MODEL, "GIVEN_BOXES", False)
         self.num_queries = config.MODEL.DECODER.OBJ_TOKEN + config.MODEL.DECODER.RLN_TOKEN + config.MODEL.DECODER.DUMMY_TOKEN
         self.obj_token = config.MODEL.DECODER.OBJ_TOKEN
         self.hidden_dim = config.MODEL.DECODER.HIDDEN_DIM
@@ -33,7 +34,7 @@ class RelationFormer(nn.Module):
         self.with_box_refine = config.MODEL.DECODER.WITH_BOX_REFINE
         self.num_classes = config.MODEL.NUM_CLASSES
 
-        self.class_embed = nn.Linear(config.MODEL.DECODER.HIDDEN_DIM, 2)
+        self.class_embed = nn.Linear(config.MODEL.DECODER.HIDDEN_DIM, self.num_classes + 1)
         self.bbox_embed = MLP(config.MODEL.DECODER.HIDDEN_DIM, config.MODEL.DECODER.HIDDEN_DIM, 4, 3)
         
         if config.MODEL.DECODER.RLN_TOKEN > 0:
@@ -69,7 +70,7 @@ class RelationFormer(nn.Module):
         self.decoder.decoder.bbox_embed = None
 
 
-    def forward(self, samples, seg=True):
+    def forward(self, samples, nodes=None, classes=None, seg=True):
         if not seg and not isinstance(samples, NestedTensor):
             samples = nested_tensor_from_tensor_list(samples)
         elif seg:
@@ -103,15 +104,65 @@ class RelationFormer(nn.Module):
         query_embeds = None
         if not self.two_stage:
             query_embeds = self.query_embed.weight
-    
+
+        reference_points = None
+        if nodes is not None:
+            N = max(n.shape[0] for n in nodes)
+
+            assert N <= self.obj_token, f"More nodes ({N}) than self.obj_token ({self.obj_token})"
+
+            # Stack variable-length node lists into (bs, N, 2)
+            node_centers = torch.stack([
+                F.pad(n[..., :2], (0, 0, 0, N - n.shape[0]))
+                for n in nodes
+            ], dim=0)  # (bs, N, 2)
+
+            # Pad remaining slots with zeros
+            reference_points = F.pad(node_centers, (0, 0, 0, self.obj_token - N))
+
         hs, init_reference, inter_references, _, _ = self.decoder(
-            srcs, masks, query_embeds, pos
+            srcs, masks, query_embeds, pos, reference_points
         )
 
         object_token = hs[...,:self.obj_token,:]
 
-        class_prob = self.class_embed(object_token)
-        coord_loc = self.bbox_embed(object_token).sigmoid()
+        if nodes is not None:
+            class_prob = []
+
+            for cls in classes:
+                real_n = cls.shape[0]
+                total_n = self.obj_token
+
+                # [obj_token, num_classes + 1]
+                cp = torch.zeros(
+                    total_n,
+                    self.num_classes + 1,
+                    device=hs.device
+                )
+
+                # default: padding/background
+                cp[:, 0] = 1
+
+                # real nodes
+                cp[:real_n, 0] = 0
+
+                # one-hot class assignment
+                cp[
+                    torch.arange(real_n, device=hs.device),
+                    cls + 1
+                ] = 1
+
+                class_prob.append(cp)
+
+            class_prob = torch.stack(class_prob, dim=0)
+            coord_loc = torch.stack([
+                F.pad(n, (0, 0, 0, self.obj_token - n.shape[0]))
+                for n in nodes
+            ], dim=0)  # (bs, num_queries, 4)
+            coord_loc = torch.cat([coord_loc, 0.15*torch.ones(coord_loc.shape, device=coord_loc.device)], dim=-1)
+        else:
+            class_prob = self.class_embed(object_token)
+            coord_loc = self.bbox_embed(object_token).sigmoid()
         
         out = {'pred_logits': class_prob, 'pred_nodes': coord_loc}
         return hs, out, srcs

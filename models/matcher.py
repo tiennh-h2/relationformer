@@ -24,6 +24,7 @@ class HungarianMatcher(nn.Module):
             cost_giou: This is the relative weight of the giou loss of the bounding box in the matching cost
         """
         super().__init__()
+        self.given_boxes = getattr(config.MODEL, "GIVEN_BOXES", False)
         self.cost_nodes = config.MODEL.MATCHER.C_NODE
         self.cost_class = config.MODEL.MATCHER.C_CLASS
 
@@ -49,12 +50,15 @@ class HungarianMatcher(nn.Module):
         # Compute the L1 cost between nodes
         cost_nodes = torch.cdist(out_nodes, tgt_nodes, p=1)
 
-        # Compute the cls cost
-        tgt_ids = torch.cat([torch.tensor([1]*v.shape[0]).to(out_nodes.device) for v in targets['nodes']])
-        cost_class = -outputs["pred_logits"].flatten(0, 1).softmax(-1)[..., tgt_ids]
+        if self.given_boxes:
+            C = cost_nodes
+        else:
+            # Compute the cls cost
+            tgt_ids = torch.cat([torch.tensor([1]*v.shape[0]).to(out_nodes.device) for v in targets['nodes']])
+            cost_class = -outputs["pred_logits"].flatten(0, 1).softmax(-1)[..., tgt_ids]
 
-        # Final cost matrix
-        C = self.cost_nodes * cost_nodes + self.cost_class * cost_class
+            # Final cost matrix
+            C = self.cost_nodes * cost_nodes + self.cost_class * cost_class
         C = C.view(bs, num_queries, -1).cpu()
 
         sizes = [len(v) for v in targets['nodes']]

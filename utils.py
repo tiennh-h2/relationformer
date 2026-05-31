@@ -1,8 +1,6 @@
 import torch
 import numpy as np
-import logging
 import pyvista
-from skimage.measure import marching_cubes_lewiner
 
 
 def get_total_grad_norm(parameters, norm_type=2):
@@ -19,12 +17,19 @@ def image_graph_collate(batch):
     edges = [item_ for item in batch for item_ in item[2]]
     return [images, points, edges]
 
-def image_graph_collate_road_network(batch):
+def image_graph_collate_road_network(batch, return_class=False):
     images = torch.stack([item[0] for item in batch], 0).contiguous()
     seg = torch.stack([item[1] for item in batch], 0).contiguous()
     points = [item[2] for item in batch]
     edges = [item[3] for item in batch]
-    return [images, seg, points, edges]
+    return_data = [images, seg, points, edges]
+    if return_class:
+        classes = [item[4] for item in batch]
+        return_data.append(classes)
+    if len(batch[0]) == 6:
+        org_images = [item[5] for item in batch]
+        return_data.append(org_images)
+    return return_data
 
 
 def save_input(path, idx, patch, patch_coord, patch_edge):

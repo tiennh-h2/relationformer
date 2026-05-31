@@ -1,20 +1,155 @@
+from functools import partial
 import os
 import yaml
 import json
 from argparse import ArgumentParser
-import pdb
+import cv2
 import numpy as np
 parser = ArgumentParser()
 parser.add_argument('--config',
-                    default=None,
+                    default="/home/tien.nguyen/workspace/project/relationformer/configs/info_box_and_windoor_linking.yaml",
                     help='config file (.yml) containing the hyper-parameters for training. '
                          'If None, use the nnU-Net config. See /config for examples.')
-parser.add_argument('--checkpoint', default=None, help='checkpoint of the model to test.')
+parser.add_argument('--checkpoint', default="/home/tien.nguyen/workspace/project/relationformer/trained_weights/runs/baseline_info_box_and_windoor_linking_no_num_edges_val_link_acc_10/models/checkpoint_key_metric=0.8480.pt", help='checkpoint of the model to test.')
 parser.add_argument('--device', default='cuda',
                         help='device to use for training')
-parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[0,1],
+parser.add_argument('--edge-score-threshold', default=0.2,
+                        help='device to use for training')
+parser.add_argument('--cuda_visible_device', nargs='*', type=int, default=[2],
                         help='list of index where skip conn will be made.')
 
+
+def draw_graph(
+    image,
+    nodes,
+    edges,
+    edge_scores=None,
+    save_path=None,
+    node_color=(0, 255, 0),
+    edge_color=(0, 0, 255),
+):
+    """
+    nodes: Nx2 or Nx4
+    edges: Mx2
+    edge_scores: list/array of length M
+    """
+
+    img = image.copy()
+
+    centers = []
+
+    #
+    # Draw nodes
+    #
+    for idx, node in enumerate(nodes):
+
+        # CASE 1: node = [x, y]
+        if len(node) == 2:
+
+            x, y = int(node[0]), int(node[1])
+
+            cv2.circle(img, (x, y), 5, node_color, -1)
+
+            cv2.putText(
+                img,
+                str(idx),
+                (x + 5, y - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                node_color,
+                1,
+            )
+
+            centers.append((x, y))
+
+        # CASE 2: node = [x1, y1, x2, y2]
+        elif len(node) == 4:
+
+            x1, y1, x2, y2 = map(int, node)
+
+            cv2.rectangle(img, (x1, y1), (x2, y2), node_color, 2)
+
+            cx = int((x1 + x2) / 2)
+            cy = int((y1 + y2) / 2)
+
+            centers.append((cx, cy))
+
+            cv2.putText(
+                img,
+                str(idx),
+                (cx, cy),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                node_color,
+                1,
+            )
+
+    #
+    # Draw edges
+    #
+    for edge_idx, edge in enumerate(edges):
+
+        src, dst = int(edge[0]), int(edge[1])
+
+        if src >= len(centers) or dst >= len(centers):
+            continue
+
+        pt1 = centers[src]
+        pt2 = centers[dst]
+
+        #
+        # Draw line
+        #
+        cv2.line(
+            img,
+            pt1,
+            pt2,
+            edge_color,
+            2,
+        )
+
+        #
+        # Draw score
+        #
+        if edge_scores is not None and edge_idx < len(edge_scores):
+
+            score = float(edge_scores[edge_idx])
+
+            mx = int((pt1[0] + pt2[0]) / 2)
+            my = int((pt1[1] + pt2[1]) / 2)
+
+            text = f"{score:.2f}"
+
+            # background for readability
+            (tw, th), _ = cv2.getTextSize(
+                text,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                1,
+            )
+
+            cv2.rectangle(
+                img,
+                (mx - 2, my - th - 4),
+                (mx + tw + 2, my + 2),
+                (255, 255, 255),
+                -1,
+            )
+
+            cv2.putText(
+                img,
+                text,
+                (mx, my),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 0, 0),
+                1,
+            )
+
+    if save_path is not None:
+        cv2.imwrite(save_path, img)
+
+    return img
 
 class obj:
     def __init__(self, dict1):
@@ -82,7 +217,7 @@ def test(args):
                             batch_size=config.DATA.TEST_BATCH_SIZE,
                             shuffle=True,
                             num_workers=config.DATA.NUM_WORKERS,
-                            collate_fn=image_graph_collate_road_network,
+                            collate_fn=partial(image_graph_collate_road_network, return_class=getattr(config.MODEL, "GIVEN_BOXES", False)),
                             pin_memory=True)
 
     # load checkpoint
@@ -101,20 +236,50 @@ def test(args):
     topo_results = []
     with torch.no_grad():
         print('Started processing test set.')
-        for batchdata in tqdm(test_loader):
+        for i, batchdata in enumerate(tqdm(test_loader)):
 
             # extract data and put to device
-            images, segs, nodes, edges = batchdata[0], batchdata[1], batchdata[2], batchdata[3]
+            images, segs, nodes, edges, classes, org_images = batchdata[0], batchdata[1], batchdata[2], batchdata[3], batchdata[4], batchdata[5]
             images = images.to(args.device,  non_blocking=False)
             segs = segs.to(args.device,  non_blocking=False)
             nodes = [node.to(args.device,  non_blocking=False) for node in nodes]
             edges = [edge.to(args.device,  non_blocking=False) for edge in edges]
 
-            h, out, _ = net(images, seg=False)
+            h, out, _ = net(images, nodes, classes, seg=False)
             pred_nodes, pred_edges, pred_nodes_box, pred_nodes_box_score, pred_nodes_box_class, pred_edges_box_score, pred_edges_box_class = relation_infer(
                 h.detach(), out, net, config.MODEL.DECODER.OBJ_TOKEN, config.MODEL.DECODER.RLN_TOKEN,
-                nms=False, map_=True
+                nms=False, map_=True,  given_boxes=config.MODEL.GIVEN_BOXES
             )
+
+            os.makedirs("vis_results", exist_ok=True)
+
+            for b_idx in range(len(org_images)):
+
+                # convert tensor image -> numpy
+                img = np.array(org_images[b_idx].resize(config.DATA.IMG_SIZE))
+
+                # RGB -> BGR for OpenCV
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+                # predicted graph
+                edge_mask = (
+                    pred_edges_box_score[b_idx]
+                    > args.edge_score_threshold
+                )
+                pred_node_np = pred_nodes[b_idx].cpu().numpy()*config.DATA.IMG_SIZE[0]
+                pred_edge_np = pred_edges[b_idx][edge_mask]
+                pred_edge_score_np = pred_edges_box_score[b_idx][edge_mask]
+
+                vis_img = draw_graph(
+                    img,
+                    pred_node_np,
+                    pred_edge_np,
+                    pred_edge_score_np,
+                )
+
+                save_path = f"vis_results/sample_{i*config.DATA.TEST_BATCH_SIZE+b_idx}.jpg"
+
+                cv2.imwrite(save_path, vis_img)
 
             # Add smd of current batch elem
             ret = metric_smd(nodes, edges, pred_nodes, pred_edges)
@@ -151,9 +316,8 @@ def test(args):
             )
             
             for node_, edge_, pred_node_, pred_edge_ in zip(nodes, edges, pred_nodes, pred_edges):
-                topo_results.append(compute_topo(node_.cpu(), edge_.cpu(), pred_node_, pred_edge_))
+                topo_results.append(compute_topo(node_.cpu(), edge_.cpu(), pred_node_, pred_edge_, config.DATA.IMG_SIZE))
     
-    pdb.set_trace()
     topo_array=np.array(topo_results)
     print(topo_array.mean(0))
     # Determine smd

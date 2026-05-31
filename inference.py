@@ -4,7 +4,7 @@ from torchvision.ops import batched_nms
 import itertools
 
 
-def relation_infer(h, out, model, obj_token, rln_token, nms=False, map_=False):
+def relation_infer(h, out, model, obj_token, rln_token, nms=False, map_=False, given_boxes=False):
     # all token except the last one is object token
     object_token = h[...,:obj_token,:]
     
@@ -50,6 +50,7 @@ def relation_infer(h, out, model, obj_token, rln_token, nms=False, map_=False):
         
         # ID of the valid tokens
         node_id = torch.nonzero(valid_token[batch_id]).squeeze(1)
+        valid_cls = valid_token[batch_id, node_id]
         
         # coordinates of the valid tokens
         pred_nodes.append(out['pred_nodes'][batch_id, node_id, :2].detach())
@@ -57,16 +58,59 @@ def relation_infer(h, out, model, obj_token, rln_token, nms=False, map_=False):
         if map_:
             pred_nodes_boxes.append(out['pred_nodes'][batch_id, node_id, :].detach().cpu().numpy())
             pred_nodes_boxes_score.append(out['pred_logits'].softmax(-1)[batch_id, node_id, 1].detach().cpu().numpy()) # TODO: generalize over multi-class
-            pred_nodes_boxes_class.append(valid_token[batch_id, node_id].cpu().numpy())
+            pred_nodes_boxes_class.append(valid_cls.cpu().numpy())
 
         if node_id.dim() !=0 and node_id.nelement() != 0 and node_id.shape[0]>1:
             
-            # all possible node pairs in all token ordering
-            node_pairs = [list(i) for i in list(itertools.combinations(list(node_id),2))]
-            node_pairs = list(map(list, zip(*node_pairs)))
-            
-            # node pairs in valid token order
-            node_pairs_valid = torch.tensor([list(i) for i in list(itertools.combinations(list(range(len(node_id))),2))])
+            if given_boxes:
+                all_pairs = list(itertools.combinations(range(len(node_id)), 2))
+                filtered_pairs = []
+                for i, j in all_pairs:
+                    ci = valid_cls[i]
+                    cj = valid_cls[j]
+
+                    allowed = (
+                        ((ci == 1) and (cj == 3)) or
+                        ((ci == 3) and (cj == 1)) or
+                        ((ci == 2) and (cj == 3)) or
+                        ((ci == 3) and (cj == 2))
+                    )
+
+                    if allowed:
+                        filtered_pairs.append((i, j))
+                    
+                if len(filtered_pairs) > 0:
+                    node_pairs_valid = torch.tensor(
+                        filtered_pairs,
+                        device=node_id.device,
+                        dtype=torch.long,
+                    )
+
+                    node_pairs = torch.stack(
+                        [
+                            node_id[node_pairs_valid[:, 0]],
+                            node_id[node_pairs_valid[:, 1]],
+                        ],
+                        dim=0,
+                    )
+                else:
+                    node_pairs_valid = torch.empty(
+                        (0, 2),
+                        device=node_id.device,
+                        dtype=torch.long,
+                    )
+                    node_pairs = torch.empty(
+                        (2, 0),
+                        device=node_id.device,
+                        dtype=torch.long,
+                    )
+            else:
+                # all possible node pairs in all token ordering
+                node_pairs = [list(i) for i in list(itertools.combinations(list(node_id),2))]
+                node_pairs = list(map(list, zip(*node_pairs)))
+                
+                # node pairs in valid token order
+                node_pairs_valid = torch.tensor([list(i) for i in list(itertools.combinations(list(range(len(node_id))),2))])
 
             # concatenate valid object pairs relation feature
             if rln_token>0:

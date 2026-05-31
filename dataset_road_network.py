@@ -8,87 +8,118 @@ import json
 import scipy.ndimage
 import imageio
 import math
+from PIL import Image
 import torch
 import pyvista
 from torch.utils.data import Dataset
 from scipy.sparse import csr_matrix
+import torchvision.transforms as T
 import torchvision.transforms.functional as tvf
 
-# train_transform = Compose(
-#     [
-#         Flip,
-#         Rotate90,
-#         ToTensor,
-#     ]
-# )
-train_transform = []
-# val_transform = Compose(
-#     [
-#         ToTensor,
-#     ]
-# )
-val_transform = []
+train_transform = T.Compose([
+    T.Resize((1024, 1024)),
+    T.ToTensor(),
+])
+
+val_transform = T.Compose([
+    T.Resize((1024, 1024)),
+    T.ToTensor(),
+])
 
 class Sat2GraphDataLoader(Dataset):
-    """[summary]
-
-    Args:
-        Dataset ([type]): [description]
-    """
-    def __init__(self, data, transform):
-        """[summary]
-
-        Args:
-            data ([type]): [description]
-            transform ([type]): [description]
-        """
+    def __init__(self, data, transform=None, return_class=False, return_original_image=False):
         self.data = data
         self.transform = transform
+        self.return_class = return_class
+        self.return_original_image = return_original_image
 
         self.mean = [0.485, 0.456, 0.406]
         self.std = [0.229, 0.224, 0.225]
-    
+
     def __len__(self):
-        """[summary]
-
-        Returns:
-            [type]: [description]
-        """
         return len(self.data)
-    
+
     def __getitem__(self, idx):
-        """[summary]
+        sample = self.data[idx]
 
-        Args:
-            idx ([type]): [description]
+        # =========================
+        # Image
+        # =========================
+        org_image = Image.open(sample["img"]).convert("RGB")
 
-        Returns:
-            [type]: [description]
-        """
-        data = self.data[idx]
-        image_data = imageio.imread(data['img'])
-        image_data = torch.tensor(image_data, dtype=torch.float).permute(2,0,1)
-        image_data = image_data/255.0
-        vtk_data = pyvista.read(data['vtp'])
-        seg_data = imageio.imread(data['seg'])
-        seg_data = seg_data/np.max(seg_data)
-        seg_data = torch.tensor(seg_data, dtype=torch.int).unsqueeze(0)
+        # segmentation
+        seg = Image.open(sample["seg"]).convert("RGB")
 
-        image_data = tvf.normalize(torch.tensor(image_data, dtype=torch.float), mean=self.mean, std=self.std)
+        # Apply resize
+        if self.transform is not None:
+            image = self.transform(org_image)
+
+            # Resize segmentation manually
+            seg = T.Resize((1024, 1024))(seg)
+            seg = np.array(seg).astype(np.float32)
+
+        else:
+            image = T.ToTensor()(org_image)
+            seg = np.array(seg).astype(np.float32)
+
+        # Normalize segmentation
+        if seg.max() > 0:
+            seg = seg / seg.max()
+
+        # Normalize image
+        image = tvf.normalize(
+            image,
+            mean=self.mean,
+            std=self.std,
+        )
+
+        # =========================
+        # Convert segmentation
+        # =========================
+        seg = torch.from_numpy(seg)
+
+        if seg.ndim == 2:
+            seg = seg.unsqueeze(0)
+        else:
+            seg = seg.permute(2, 0, 1)
+
+        seg = seg.float() - 0.5
+
+        # =========================
+        # Graph
+        # =========================
+        vtk_data = pyvista.read(sample["vtp"])
+
+        coordinates = torch.from_numpy(
+            np.asarray(vtk_data.points, dtype=np.float32)
+        )
+
+        lines = torch.from_numpy(
+            vtk_data.lines.reshape(-1, 3)
+        ).long()
+
+        classes = torch.from_numpy(
+            vtk_data.point_data["class"]
+        ).long()
+
+        outputs = [
+            image,
+            seg,
+            coordinates[:, :2],
+            lines[:, 1:]
+        ]
+
+        if self.return_class:
+            outputs.append(classes)
+
+        if self.return_original_image:
+            outputs.append(org_image)
+
+        return tuple(outputs)
 
 
-        # correction of shift in the data
-        # shift = [np.shape(image_data)[0]/2 -1.8, np.shape(image_data)[1]/2 + 8.3, 4.0]
-        # coordinates = np.float32(np.asarray(vtk_data.points))
-        # lines = np.asarray(vtk_data.lines.reshape(-1, 3))
 
-        coordinates = torch.tensor(np.float32(np.asarray(vtk_data.points)), dtype=torch.float)
-        lines = torch.tensor(np.asarray(vtk_data.lines.reshape(-1, 3)), dtype=torch.int64)
-
-        return image_data, seg_data-0.5, coordinates[:,:2], lines[:,1:]
-
-
-def build_road_network_data(config, mode='train', split=0.95):
+def build_road_network_data(config, mode='train', split=0.9):
     """[summary]
 
     Args:
@@ -119,6 +150,7 @@ def build_road_network_data(config, mode='train', split=0.95):
         ds = Sat2GraphDataLoader(
             data=data_dicts,
             transform=train_transform,
+            return_class=getattr(config.MODEL, "GIVEN_BOXES", False)
         )
         return ds
     elif mode=='test':
@@ -141,6 +173,8 @@ def build_road_network_data(config, mode='train', split=0.95):
         ds = Sat2GraphDataLoader(
             data=data_dicts,
             transform=val_transform,
+            return_class=getattr(config.MODEL, "GIVEN_BOXES", False),
+            return_original_image=True
         )
         return ds
     elif mode=='split':
@@ -167,9 +201,11 @@ def build_road_network_data(config, mode='train', split=0.95):
         train_ds = Sat2GraphDataLoader(
             data=train_files,
             transform=train_transform,
+            return_class=getattr(config.MODEL, "GIVEN_BOXES", False)
         )
         val_ds = Sat2GraphDataLoader(
             data=val_files,
             transform=val_transform,
+            return_class=getattr(config.MODEL, "GIVEN_BOXES", False)
         )
         return train_ds, val_ds

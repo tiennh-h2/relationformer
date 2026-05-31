@@ -21,6 +21,9 @@ class RelationformerTrainer(SupervisedTrainer):
 
     def _iteration(self, engine, batchdata):
         images, seg, nodes, edges = batchdata[0], batchdata[1], batchdata[2], batchdata[3]
+        classes = None
+        if len(batchdata) == 5:
+            classes = batchdata[4]
         # inputs, targets = self.get_batch(batchdata, image_keys=IMAGE_KEYS, label_keys="label")
         # inputs = torch.cat(inputs, 1)
 
@@ -34,7 +37,7 @@ class RelationformerTrainer(SupervisedTrainer):
         self.network[1].eval()
         self.optimizer.zero_grad()
         
-        h, out, srcs = self.network[0](images, seg=False)
+        h, out, srcs = self.network[0](images, nodes, classes=classes, seg=False)
 
         # _, _, seg_srcs = self.network[1](seg, seg=True)
         
@@ -116,42 +119,42 @@ def build_trainer(train_loader, net, seg_net, loss, optimizer, scheduler, writer
             tag_name="classification_loss",
             output_transform=lambda x: x["loss"]["class"],
             global_epoch_transform=lambda x: scheduler.last_epoch,
-            iteration_interval=10,
+            iteration_log=10,
         ),
         TensorBoardStatsHandler(
             writer,
             tag_name="node_loss",
             output_transform=lambda x: x["loss"]["nodes"],
             global_epoch_transform=lambda x: scheduler.last_epoch,
-            iteration_interval=10,
+            iteration_log=10,
         ),
         TensorBoardStatsHandler(
             writer,
             tag_name="edge_loss",
             output_transform=lambda x: x["loss"]["edges"],
             global_epoch_transform=lambda x: scheduler.last_epoch,
-            iteration_interval=10,
+            iteration_log=10,
         ),
         TensorBoardStatsHandler(
             writer,
             tag_name="box_loss",
             output_transform=lambda x: x["loss"]["boxes"],
             global_epoch_transform=lambda x: scheduler.last_epoch,
-            iteration_interval=10,
+            iteration_log=10,
         ),
         TensorBoardStatsHandler(
             writer,
             tag_name="card_loss",
             output_transform=lambda x: x["loss"]["cards"],
             global_epoch_transform=lambda x: scheduler.last_epoch,
-            iteration_interval=10,
+            iteration_log=10,
         ),
         TensorBoardStatsHandler(
             writer,
             tag_name="total_loss",
             output_transform=lambda x: x["loss"]["total"],
             global_epoch_transform=lambda x: scheduler.last_epoch,
-            iteration_interval=10,
+            iteration_log=10,
         )
     ]
     # train_post_transform = Compose(

@@ -1,3 +1,4 @@
+from functools import partial
 import os
 import yaml
 import sys
@@ -7,7 +8,7 @@ import numpy as np
 
 parser = ArgumentParser()
 parser.add_argument('--config',
-                    default=None,
+                    default="configs/info_box_and_windoor_linking.yaml",
                     help='config file (.yml) containing the hyper-parameters for training. '
                          'If None, use the nnU-Net config. See /config for examples.')
 parser.add_argument('--resume', default=None, help='checkpoint of the last epoch of the model')
@@ -81,14 +82,14 @@ def main(args):
                             batch_size=config.DATA.BATCH_SIZE,
                             shuffle=True,
                             num_workers=config.DATA.NUM_WORKERS,
-                            collate_fn=image_graph_collate_road_network,
+                            collate_fn=partial(image_graph_collate_road_network, return_class=getattr(config.MODEL, "GIVEN_BOXES", False)),
                             pin_memory=True)
 
     val_loader = DataLoader(val_ds,
                             batch_size=config.DATA.BATCH_SIZE,
                             shuffle=False,
                             num_workers=config.DATA.NUM_WORKERS,
-                            collate_fn=image_graph_collate_road_network,
+                            collate_fn=partial(image_graph_collate_road_network, return_class=getattr(config.MODEL, "GIVEN_BOXES", False)),
                             pin_memory=True)
 
     param_dicts = [

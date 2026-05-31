@@ -10,7 +10,7 @@ parser.add_argument('--config',
                     default="/home/tien.nguyen/workspace/project/relationformer/configs/info_box_and_windoor_linking.yaml",
                     help='config file (.yml) containing the hyper-parameters for training. '
                          'If None, use the nnU-Net config. See /config for examples.')
-parser.add_argument('--checkpoint', default="/home/tien.nguyen/workspace/project/relationformer/trained_weights/runs/baseline_info_box_and_windoor_linking_no_num_edges_val_link_acc_10/models/checkpoint_key_metric=0.8480.pt", help='checkpoint of the model to test.')
+parser.add_argument('--checkpoint', default="/home/tien.nguyen/workspace/project/relationformer/trained_weights/runs/baseline_info_box_and_windoor_linking_no_num_edges_val_link_acc_center_pred_nodes_10/models/checkpoint_key_metric=0.8617.pt", help='checkpoint of the model to test.')
 parser.add_argument('--device', default='cuda',
                         help='device to use for training')
 parser.add_argument('--edge-score-threshold', default=0.2,
@@ -111,40 +111,40 @@ def draw_graph(
         #
         # Draw score
         #
-        if edge_scores is not None and edge_idx < len(edge_scores):
+        # if edge_scores is not None and edge_idx < len(edge_scores):
 
-            score = float(edge_scores[edge_idx])
+        #     score = float(edge_scores[edge_idx])
 
-            mx = int((pt1[0] + pt2[0]) / 2)
-            my = int((pt1[1] + pt2[1]) / 2)
+        #     mx = int((pt1[0] + pt2[0]) / 2)
+        #     my = int((pt1[1] + pt2[1]) / 2)
 
-            text = f"{score:.2f}"
+        #     text = f"{score:.2f}"
 
-            # background for readability
-            (tw, th), _ = cv2.getTextSize(
-                text,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                1,
-            )
+        #     # background for readability
+        #     (tw, th), _ = cv2.getTextSize(
+        #         text,
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         0.5,
+        #         1,
+        #     )
 
-            cv2.rectangle(
-                img,
-                (mx - 2, my - th - 4),
-                (mx + tw + 2, my + 2),
-                (255, 255, 255),
-                -1,
-            )
+        #     cv2.rectangle(
+        #         img,
+        #         (mx - 2, my - th - 4),
+        #         (mx + tw + 2, my + 2),
+        #         (255, 255, 255),
+        #         -1,
+        #     )
 
-            cv2.putText(
-                img,
-                text,
-                (mx, my),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 0, 0),
-                1,
-            )
+        #     cv2.putText(
+        #         img,
+        #         text,
+        #         (mx, my),
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         0.5,
+        #         (0, 0, 0),
+        #         1,
+        #     )
 
     if save_path is not None:
         cv2.imwrite(save_path, img)

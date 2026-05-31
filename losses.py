@@ -292,7 +292,7 @@ class SetCriterion(nn.Module):
         
         losses = {}
         losses['class'] = self.loss_class(out['pred_logits'], indices)
-        losses['nodes'] = self.loss_nodes(out['pred_nodes'][...,:2], target['nodes'], indices)
+        losses['nodes'] = self.loss_nodes(out['center_pred_nodes'], target['nodes'], indices)
         losses['boxes'] = self.loss_boxes(out['pred_nodes'], target['nodes'], indices)
         losses['edges'] = self.loss_edges(h, target['nodes'], target['edges'], out['pred_logits'], indices, None)
         losses['cards'] = self.loss_cardinality(out['pred_logits'], indices)

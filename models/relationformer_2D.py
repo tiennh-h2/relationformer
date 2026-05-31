@@ -35,7 +35,8 @@ class RelationFormer(nn.Module):
         self.num_classes = config.MODEL.NUM_CLASSES
 
         self.class_embed = nn.Linear(config.MODEL.DECODER.HIDDEN_DIM, self.num_classes + 1)
-        self.bbox_embed = MLP(config.MODEL.DECODER.HIDDEN_DIM, config.MODEL.DECODER.HIDDEN_DIM, 4, 3)
+        # self.bbox_embed = MLP(config.MODEL.DECODER.HIDDEN_DIM, config.MODEL.DECODER.HIDDEN_DIM, 4, 3)
+        self.center_embed = MLP(config.MODEL.DECODER.HIDDEN_DIM, config.MODEL.DECODER.HIDDEN_DIM, 2, 3)
         
         if config.MODEL.DECODER.RLN_TOKEN > 0:
             self.relation_embed = MLP(config.MODEL.DECODER.HIDDEN_DIM*3, config.MODEL.DECODER.HIDDEN_DIM, 2, 3)
@@ -160,11 +161,12 @@ class RelationFormer(nn.Module):
                 for n in nodes
             ], dim=0)  # (bs, num_queries, 4)
             coord_loc = torch.cat([coord_loc, 0.15*torch.ones(coord_loc.shape, device=coord_loc.device)], dim=-1)
+            center_coord_loc = self.center_embed(object_token).sigmoid()
         else:
             class_prob = self.class_embed(object_token)
             coord_loc = self.bbox_embed(object_token).sigmoid()
         
-        out = {'pred_logits': class_prob, 'pred_nodes': coord_loc}
+        out = {'pred_logits': class_prob, 'pred_nodes': coord_loc, 'center_pred_nodes': center_coord_loc}
         return hs, out, srcs
 
 

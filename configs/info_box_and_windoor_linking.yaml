@@ -5,7 +5,7 @@ DATA:
   DATA_PATH: './data/info_box_and_windoor_linking/train_val'        # Path to dataset, could be overwritten by command line argument
   TEST_DATA_PATH: './data/info_box_and_windoor_linking/test'
   DATASET: 'info_box_and_windoor_linking'     # Dataset name
-  IMG_SIZE: [1024, 1024]    # Input image size
+  IMG_SIZE: [512, 512]    # Input image size
   NUM_WORKERS: 4          # Number of data loading threads
   SEED: 10                # random seed for reproducibility
 
@@ -74,10 +74,10 @@ TRAIN:
   W_BBOX: 0.0
   W_CLASS: 0.0
   W_CARD: 0.0
-  W_NODE: 0.0
-  W_EDGE: 1.0
+  W_NODE: 1.0
+  W_EDGE: 2.0
 
 
 log:
-  exp_name: 'baseline_info_box_and_windoor_linking_no_num_edges_val_link_acc'
+  exp_name: 'baseline_info_box_and_windoor_linking_no_num_edges_val_link_acc_center_pred_nodes_size_512'
   message: "Baseline 2D relationformer for 2D sat network"

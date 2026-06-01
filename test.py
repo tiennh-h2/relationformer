@@ -10,7 +10,7 @@ parser.add_argument('--config',
                     default="/home/tien.nguyen/workspace/project/relationformer/configs/info_box_and_windoor_linking.yaml",
                     help='config file (.yml) containing the hyper-parameters for training. '
                          'If None, use the nnU-Net config. See /config for examples.')
-parser.add_argument('--checkpoint', default="/home/tien.nguyen/workspace/project/relationformer/trained_weights/runs/baseline_info_box_and_windoor_linking_no_num_edges_val_link_f1_center_pred_nodes_focal_loss_10/models/checkpoint_key_metric=0.7936.pt", help='checkpoint of the model to test.')
+parser.add_argument('--checkpoint', default="/home/tien.nguyen/workspace/project/relationformer/trained_weights/runs/baseline_info_box_and_windoor_linking_no_num_edges_val_link_f1_center_pred_nodes_focal_loss_alpha_1_5_10/models/checkpoint_key_metric=0.8863.pt", help='checkpoint of the model to test.')
 parser.add_argument('--device', default='cuda',
                         help='device to use for training')
 parser.add_argument('--edge-score-threshold', default=0.,

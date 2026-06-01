@@ -98,7 +98,7 @@ class SetCriterion(nn.Module):
         self.obj_token = config.MODEL.DECODER.OBJ_TOKEN
         self.losses = config.TRAIN.LOSSES
         self.focal_loss = FocalLoss(
-            # alpha=torch.tensor([1.0, 5.0]),
+            alpha=torch.tensor([1.0, 5.0]),
             gamma=2.0
         )
         self.weight_dict = {'boxes':config.TRAIN.W_BBOX,

@@ -64,21 +64,66 @@ class FrozenBatchNorm2d(torch.nn.Module):
 
 class BackboneBase(nn.Module):
 
-    def __init__(self, backbone: nn.Module, train_backbone: bool, return_interm_layers: bool):
+    def __init__(self, backbone: nn.Module, backbone_name: str, train_backbone: bool, return_interm_layers: bool):
         super().__init__()
-        for name, parameter in backbone.named_parameters():
-            if not train_backbone or 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
-                parameter.requires_grad_(False)
-        if return_interm_layers:
-            # return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
-            return_layers = {"layer2": "0", "layer3": "1", "layer4": "2"}
-            self.strides = [8, 16, 32]
-            self.num_channels = [512, 1024, 2048]
-        else:
-            return_layers = {'layer4': "0"}
-            self.strides = [32]
-            self.num_channels = [2048]
-        self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
+        if "resnet" in backbone_name:
+            for name, parameter in backbone.named_parameters():
+                if not train_backbone or 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
+                    parameter.requires_grad_(False)
+            if return_interm_layers:
+                # return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
+                return_layers = {"layer2": "0", "layer3": "1", "layer4": "2"}
+                self.strides = [8, 16, 32]
+                self.num_channels = [512, 1024, 2048]
+            else:
+                return_layers = {'layer4': "0"}
+                self.strides = [32]
+                self.num_channels = [2048]
+            self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
+        else:  # ConvNeXt (torchvision)
+
+            for name, parameter in backbone.named_parameters():
+                if not train_backbone or (
+                    "features.3" not in name
+                    and "features.5" not in name
+                    and "features.7" not in name
+                ):
+                    parameter.requires_grad_(False)
+
+            if return_interm_layers:
+                return_layers = {
+                    "3": "0",
+                    "5": "1",
+                    "7": "2",
+                }
+                self.strides = [8, 16, 32]
+
+                if "tiny" in backbone_name or "small" in backbone_name:
+                    self.num_channels = [192, 384, 768]
+                elif "base" in backbone_name:
+                    self.num_channels = [256, 512, 1024]
+                elif "large" in backbone_name:
+                    self.num_channels = [384, 768, 1536]
+                else:
+                    raise ValueError(f"Unsupported ConvNeXt variant: {backbone_name}")
+
+            else:
+                return_layers = {"7": "0"}
+                self.strides = [32]
+
+                if "tiny" in backbone_name or "small" in backbone_name:
+                    self.num_channels = [768]
+                elif "base" in backbone_name:
+                    self.num_channels = [1024]
+                elif "large" in backbone_name:
+                    self.num_channels = [1536]
+                else:
+                    raise ValueError(f"Unsupported ConvNeXt variant: {backbone_name}")
+
+            self.body = IntermediateLayerGetter(
+                backbone.features,
+                return_layers=return_layers,
+            )
 
     def forward(self, tensor_list: NestedTensor):
         xs = self.body(tensor_list.tensors)
@@ -97,12 +142,16 @@ class Backbone(BackboneBase):
                  train_backbone: bool,
                  return_interm_layers: bool,
                  dilation: bool):
-        norm_layer = FrozenBatchNorm2d
-        backbone = getattr(torchvision.models, name)(
-            replace_stride_with_dilation=[False, False, dilation],
-            pretrained=is_main_process(), norm_layer=norm_layer)
+        if "resnet" in name:
+            norm_layer = FrozenBatchNorm2d
+            backbone = getattr(torchvision.models, name)(
+                replace_stride_with_dilation=[False, False, dilation],
+                pretrained=is_main_process(), norm_layer=norm_layer)
+        else:
+            backbone = getattr(torchvision.models, name)(pretrained=is_main_process())
+
         assert name not in ('resnet18', 'resnet34'), "number of channels are hard coded"
-        super().__init__(backbone, train_backbone, return_interm_layers)
+        super().__init__(backbone, name, train_backbone, return_interm_layers)
         if dilation:
             self.strides[-1] = self.strides[-1] // 2
 

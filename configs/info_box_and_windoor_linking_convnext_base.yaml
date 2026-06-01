@@ -20,7 +20,7 @@ MODEL:
     POSITION_EMBEDDING: sine
     LR_BACKBONE: 2e-5
     NUM_FEATURE_LEVELS: 4
-    BACKBONE: resnet101
+    BACKBONE: convnext_base
     MASKS: False
     DILATION: False
 
@@ -79,5 +79,5 @@ TRAIN:
 
 
 log:
-  exp_name: 'baseline_info_box_and_windoor_linking_no_num_edges_val_link_f1_center_pred_nodes_focal_loss_alpha_1_5_fix_hungarian_matcher'
+  exp_name: 'baseline_info_box_and_windoor_linking_no_num_edges_val_link_f1_center_pred_nodes_convnext_base_focal_loss_alpha_1_5_10'
   message: "relationformer for box info and windoors linking"

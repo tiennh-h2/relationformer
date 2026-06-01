@@ -51,7 +51,14 @@ class HungarianMatcher(nn.Module):
         cost_nodes = torch.cdist(out_nodes, tgt_nodes, p=1)
 
         if self.given_boxes:
-            C = cost_nodes
+            indices = [
+                (
+                    torch.arange(len(v), dtype=torch.int64),
+                    torch.arange(len(v), dtype=torch.int64)
+                )
+                for v in targets["nodes"]
+            ]
+            return indices
         else:
             # Compute the cls cost
             tgt_ids = torch.cat([torch.tensor([1]*v.shape[0]).to(out_nodes.device) for v in targets['nodes']])
